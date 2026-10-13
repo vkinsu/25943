@@ -1,6 +1,8 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #define MAX_LINE 1024
 
@@ -10,48 +12,119 @@ struct Node
     struct Node *next;
 };
 
-int main()
+void remove_arrows(char *str)
+{
+    char *read_ptr = str;
+    char *write_ptr = str;
+
+    while (*read_ptr != '\0')
+    {
+        if ((unsigned char)read_ptr[0] == 27 &&
+            read_ptr[1] == '[' &&
+            read_ptr[2] != '\0' &&
+            (read_ptr[2] == 'A' ||
+             read_ptr[2] == 'B' ||
+             read_ptr[2] == 'C' ||
+             read_ptr[2] == 'D'))
+        {
+            read_ptr += 3;
+        }
+        else
+        {
+            *write_ptr++ = *read_ptr++;
+        }
+    }
+
+    *write_ptr = '\0';
+}
+
+int main(void)
 {
     char buffer[MAX_LINE];
-
     struct Node *head = NULL;
     struct Node *tail = NULL;
+    int error = 0;
 
     while (1)
     {
+        char *line = NULL;
+        size_t length = 0;
+
         printf("Введите строку: ");
+        fflush(stdout);
 
-        if (fgets(buffer, sizeof(buffer), stdin) == NULL)
+        while (fgets(buffer, sizeof(buffer), stdin) != NULL)
+        {
+            size_t part_len = strlen(buffer);
+
+            if (part_len > SIZE_MAX - length - 1)
+            {
+                fprintf(stderr, "Слишком длинная строка\n");
+                free(line);
+                error = 1;
+                line = NULL;
+                break;
+            }
+
+            char *new_line = realloc(line, length + part_len + 1);
+
+            if (new_line == NULL)
+            {
+                perror("realloc");
+                free(line);
+                error = 1;
+                line = NULL;
+                break;
+            }
+
+            line = new_line;
+            memcpy(line + length, buffer, part_len + 1);
+            length += part_len;
+
+            if (length > 0 && line[length - 1] == '\n')
+            {
+                break;
+            }
+        }
+
+        if (error)
         {
             break;
         }
 
-        if (buffer[0] == '.')
+        if (line == NULL)
         {
             break;
         }
 
-        size_t len = strlen(buffer);
+        size_t original_length = strlen(line);
+
+        remove_arrows(line);
+
+        if (line[0] == '.')
+        {
+            free(line);
+            break;
+        }
+
+        if (original_length > strlen(line) &&
+            (line[0] == '\n' || line[0] == '\0'))
+        {
+            free(line);
+            continue;
+        }
 
         struct Node *new_node = malloc(sizeof(struct Node));
 
         if (new_node == NULL)
         {
             perror("malloc");
-            return 1;
+            free(line);
+            error = 1;
+            break;
         }
 
-        new_node->str = malloc(len + 1);
-
-        if (new_node->str == NULL)
-        {
-            perror("malloc");
-            free(new_node);
-            return 1;
-        }
-
-        strcpy(new_node->str, buffer);
-
+        new_node->str = line;
         new_node->next = NULL;
 
         if (head == NULL)
@@ -68,15 +141,22 @@ int main()
 
     printf("\nСписок строк:\n");
 
-    struct Node *current = head;
-
-    while (current != NULL)
+    if (head == NULL)
     {
-        printf("%s", current->str);
-        current = current->next;
+        printf("Список пуст\n");
+    }
+    else
+    {
+        struct Node *current = head;
+
+        while (current != NULL)
+        {
+            printf("%s", current->str);
+            current = current->next;
+        }
     }
 
-    current = head;
+    struct Node *current = head;
 
     while (current != NULL)
     {
@@ -88,5 +168,5 @@ int main()
         current = next;
     }
 
-    return 0;
+    return error ? 1 : 0;
 }
