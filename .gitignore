@@ -3,3 +3,18 @@
 e.afanaseva/[1-7]/section1_task[1-7]
 
 e.afanaseva/[1-7]/task5.txt
+*.exe
+*.out
+*.app
+
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+/bin/
+/build/
+/out/
