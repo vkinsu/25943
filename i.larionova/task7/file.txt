@@ -1,4 +1,0 @@
-Hello world
-This is line two
-Short line
-Linux system calls
