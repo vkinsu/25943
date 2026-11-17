@@ -1,20 +1,16 @@
-.DS_Store
+*
+!*/
 
-e.afanaseva/[1-7]/section1_task[1-7]
+!*.c
+!*.h
 
-e.afanaseva/[1-7]/task5.txt
-*.exe
-*.out
-*.app
+!*.txt
 
-*.o
-*.obj
-*.a
-*.lib
-*.so
-*.dll
-*.dylib
+.ssh/
 
-/bin/
-/build/
-/out/
+![Mm]akefile
+!*.mk
+
+!*.gitignore
+
+
