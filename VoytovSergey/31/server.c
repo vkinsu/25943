@@ -19,7 +19,7 @@
 
 #define SOCKET_PATH "/tmp/uds_31_s.voitov_upper.sock"
 #define MAX_CLIENTS 64
-#define BUF_SIZE 1024
+#define BUF_SIZE 1
 
 static volatile sig_atomic_t running = 1;
 
@@ -104,7 +104,6 @@ int main(void) {
             break;
         }
 
-        /* 1. Приём нового подключения */
         if (fds[0].revents & POLLIN) {
             int client_fd = accept(listen_fd, NULL, NULL);
             if (client_fd >= 0) {
@@ -126,7 +125,6 @@ int main(void) {
             }
         }
 
-        /* 2. Чтение данных от всех активных клиентов без блокировок */
         for (int i = 1; i <= MAX_CLIENTS; i++) {
             if (fds[i].fd == -1) {
                 continue;
