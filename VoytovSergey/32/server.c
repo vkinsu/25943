@@ -19,6 +19,7 @@
 
 #ifdef __sun
 #include <stropts.h>
+#include <ucred.h>
 #endif
 
 #ifndef SIGPOLL
@@ -30,6 +31,7 @@
 #define BUF_SIZE 1024
 
 static int client_fds[MAX_CLIENTS];
+static pid_t client_pids[MAX_CLIENTS];
 static volatile sig_atomic_t running = 1;
 static volatile sig_atomic_t got_sigpoll = 0;
 
@@ -41,6 +43,25 @@ static void handle_term_sig(int sig) {
 static void handle_sigpoll(int sig) {
     (void)sig;
     got_sigpoll = 1;
+}
+
+static pid_t get_client_pid(int fd) {
+#ifdef __sun
+    ucred_t *uc = NULL;
+    if (getpeerucred(fd, &uc) == 0 && uc != NULL) {
+        pid_t pid = ucred_getpid(uc);
+        ucred_free(uc);
+        return pid;
+    }
+    return -1;
+#else
+    struct ucred uc;
+    socklen_t len = sizeof(uc);
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &uc, &len) == 0) {
+        return uc.pid;
+    }
+    return -1;
+#endif
 }
 
 static void to_upper_and_print(char *buf, ssize_t len) {
@@ -61,7 +82,6 @@ static void to_upper_and_print(char *buf, ssize_t len) {
     }
 }
 
-/* Включаем неблокирующий режим и генерацию SIGPOLL/SIGIO для сокета */
 static bool enable_async_io(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags == -1) {
@@ -105,6 +125,7 @@ static void drain_client(int idx) {
         } else if (n == 0) {
             close(fd);
             client_fds[idx] = -1;
+            client_pids[idx] = -1;
             break;
         } else {
             if (errno == EINTR) {
@@ -116,6 +137,7 @@ static void drain_client(int idx) {
             perror("read client");
             close(fd);
             client_fds[idx] = -1;
+            client_pids[idx] = -1;
             break;
         }
     }
@@ -155,6 +177,7 @@ static void accept_new_clients(int listen_fd) {
         }
 
         client_fds[idx] = client_fd;
+        client_pids[idx] = get_client_pid(client_fd);
         drain_client(idx);
     }
 }
@@ -164,6 +187,7 @@ int main(void) {
 
     for (int i = 0; i < MAX_CLIENTS; i++) {
         client_fds[i] = -1;
+        client_pids[i] = -1;
     }
 
     sigset_t block_mask, old_mask;
@@ -244,9 +268,18 @@ int main(void) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (client_fds[i] != -1) {
             close(client_fds[i]);
+            client_fds[i] = -1;
         }
     }
     close(listen_fd);
     unlink(SOCKET_PATH);
+
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (client_pids[i] > 0) {
+            kill(client_pids[i], SIGCONT);
+            client_pids[i] = -1;
+        }
+    }
+
     return EXIT_SUCCESS;
 }

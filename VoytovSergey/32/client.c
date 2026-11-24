@@ -186,7 +186,21 @@ static void fill_demo_message(SingleByteBuffer *buf, int counter) {
     }
 }
 
-static ssize_t read_or_demo_line(SingleByteBuffer *buf, int *demo_counter) {
+static bool check_server_closed(int sock_fd, short revents) {
+    if (revents & (POLLHUP | POLLERR | POLLNVAL)) {
+        return true;
+    }
+    if (revents & POLLIN) {
+        char dummy;
+        ssize_t n = read(sock_fd, &dummy, 1);
+        if (n <= 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static ssize_t read_or_demo_line(int sock_fd, SingleByteBuffer *buf, int *demo_counter) {
     buf->len = 0;
     buf->data[0] = '\0';
     bool is_tty = isatty(STDIN_FILENO);
@@ -195,18 +209,30 @@ static ssize_t read_or_demo_line(SingleByteBuffer *buf, int *demo_counter) {
         sync_terminal_mode();
 
         if (!is_foreground()) {
-            (void)poll(NULL, 0, 200);
+            struct pollfd sock_pfd;
+            sock_pfd.fd = sock_fd;
+            sock_pfd.events = POLLIN | POLLHUP | POLLERR;
+            sock_pfd.revents = 0;
+
+            int ret = poll(&sock_pfd, 1, 200);
+            if (ret > 0 && check_server_closed(sock_fd, sock_pfd.revents)) {
+                return 0;
+            }
             got_sigcont = 0;
             continue;
         }
 
-        struct pollfd pfd;
-        pfd.fd = STDIN_FILENO;
-        pfd.events = POLLIN;
-        pfd.revents = 0;
+        struct pollfd pfds[2];
+        pfds[0].fd = STDIN_FILENO;
+        pfds[0].events = POLLIN;
+        pfds[0].revents = 0;
+
+        pfds[1].fd = sock_fd;
+        pfds[1].events = POLLIN | POLLHUP | POLLERR;
+        pfds[1].revents = 0;
 
         int timeout = (buf->len == 0 && is_tty) ? FG_IDLE_DEMO_MS : -1;
-        int ready = poll(&pfd, 1, timeout);
+        int ready = poll(pfds, 2, timeout);
 
         if (ready < 0) {
             if (errno == EINTR) {
@@ -216,10 +242,20 @@ static ssize_t read_or_demo_line(SingleByteBuffer *buf, int *demo_counter) {
             return -1;
         }
 
+        if (ready > 0 && pfds[1].revents != 0) {
+            if (check_server_closed(sock_fd, pfds[1].revents)) {
+                return 0;
+            }
+        }
+
         if (ready == 0 && buf->len == 0 && is_tty) {
             (*demo_counter)++;
             fill_demo_message(buf, *demo_counter);
             return (ssize_t)buf->len;
+        }
+
+        if (!(pfds[0].revents & (POLLIN | POLLHUP | POLLERR))) {
+            continue;
         }
 
         unsigned char ch = 0;
@@ -327,7 +363,7 @@ int main(void) {
     int demo_counter = 0;
 
     while (1) {
-        ssize_t len = read_or_demo_line(&buf, &demo_counter);
+        ssize_t len = read_or_demo_line(sock_fd, &buf, &demo_counter);
         if (len <= 0) {
             break;
         }
